@@ -1,0 +1,16 @@
+{
+  "name": "interview-prep",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.6",
+    "bun-types": "^1.4.4",
+    "happy-dom": "^21.0.4"
+  }
+}
