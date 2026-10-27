@@ -6,14 +6,14 @@ const GAP = 1500
 let t = 0
 let buf: TurnBuffer
 
-const upd = (blockId: string, speaker: Speaker, text: string): CaptionUpdate => ({
+const upd = (blockId: string, speaker: Speaker, text: string, ts = t): CaptionUpdate => ({
   blockId,
   speaker,
   speakerName: speaker === 'user' ? 'Me' : 'Interviewer',
   text,
-  ts: t,
+  ts,
 })
-const say = (blockId: string, speaker: Speaker, text: string) => buf.ingest(upd(blockId, speaker, text))
+const say = (blockId: string, speaker: Speaker, text: string, ts = t) => buf.ingest(upd(blockId, speaker, text, ts))
 const question = (r: ReturnType<TurnBuffer['snapshot']>) => ('snapshot' in r ? r.snapshot.question : null)
 
 beforeEach(() => {
@@ -40,14 +40,16 @@ describe('TurnBuffer', () => {
     expect(buf.tick()).toHaveLength(1)
   })
 
-  test('turn startedAt/endedAt come from update ts', () => {
-    say('a', 'interviewer', 'one')
+  test('turn startedAt/endedAt come from update ts, not now()', () => {
+    say('a', 'interviewer', 'one', 5000)
     t += 500
-    say('b', 'interviewer', 'two')
+    say('b', 'interviewer', 'two', 5200)
+    t += GAP
+    say('a', 'interviewer', 'one!', 5300) // rewrite refreshes endedAt
     t += GAP
     const q = question(buf.snapshot())!
-    expect(q.startedAt).toBe(1000)
-    expect(q.endedAt).toBe(1500)
+    expect(q.startedAt).toBe(5000)
+    expect(q.endedAt).toBe(5300)
   })
 
   test('speaker change completes the turn immediately', () => {
