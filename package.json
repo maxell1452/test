@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2"
@@ -11,6 +12,7 @@
   "devDependencies": {
     "@types/chrome": "^0.3.6",
     "bun-types": "^1.4.4",
-    "happy-dom": "^21.0.4"
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.3"
   }
 }
