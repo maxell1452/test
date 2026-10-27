@@ -81,7 +81,7 @@ describe('bridge server', () => {
     expect(String(n.params?.content)).toContain('Self-test')
   })
 
-  test('exits when the client disconnects', async () => {
+  test('client.close() leaves no process and no listener behind', async () => {
     const pid = transport.pid!
     expect(pid).toBeGreaterThan(0)
     await client.close()
@@ -94,6 +94,28 @@ describe('bridge server', () => {
       }
     }, 2000)
     expect(gone).toBe(true)
-    expect(fetch(`${BASE}/status`)).rejects.toThrow()
+    await expect(fetch(`${BASE}/status`)).rejects.toThrow()
+  })
+
+  // Spawned directly so only stdin EOF can stop it: client.close() would fall back to SIGTERM/SIGKILL and mask a missing handler.
+  test('exits with code 0 within 2 s when stdin ends', async () => {
+    const url = 'http://127.0.0.1:18788/status'
+    const proc = Bun.spawn([process.execPath, 'bridge/server.ts'], {
+      cwd: ROOT,
+      env: { ...process.env, BRIDGE_PORT: '18788' },
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    try {
+      const up = await until(async () => (await fetch(url).catch(() => null))?.status === 200, 5000)
+      expect(up).toBe(true)
+      proc.stdin.end()
+      const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('did not exit within 2000 ms')), 2000))
+      expect(await Promise.race([proc.exited, timeout])).toBe(0)
+      await expect(fetch(url)).rejects.toThrow()
+    } finally {
+      proc.kill('SIGKILL')
+    }
   })
 })
