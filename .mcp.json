@@ -1,0 +1,1 @@
+{ "mcpServers": { "interview-bridge": { "command": "bun", "args": ["bridge/server.ts"] } } }
