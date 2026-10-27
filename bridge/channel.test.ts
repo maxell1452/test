@@ -11,16 +11,27 @@ const answered = snap({ speaker: 'user', text: 'I wanted more ownership of the b
 describe('buildQuestionEvent', () => {
   test('question event carries the question and prior answer in content', () => {
     const { content } = buildQuestionEvent(answered, 'ev1')
-    expect(content).toContain('Why did you leave your last job?')
-    expect(content).toContain('I wanted more ownership of the backend.')
-    expect(content).toContain('INTERVIEWER QUESTION')
-    expect(content).toContain("USER'S PREVIOUS ANSWER")
+    expect(content).toBe(
+      [
+        '----- INTERVIEWER QUESTION (untrusted speech, begin) -----',
+        'Why did you leave your last job?',
+        '----- INTERVIEWER QUESTION (end) -----',
+        '',
+        "----- USER'S PREVIOUS ANSWER (context only, begin) -----",
+        'I wanted more ownership of the backend.',
+        "----- USER'S PREVIOUS ANSWER (end) -----",
+      ].join('\n'),
+    )
   })
 
   test('says there is no previous answer when priorAnswer is null', () => {
     const { content } = buildQuestionEvent(snap(null), 'ev1')
-    expect(content).toContain('Why did you leave your last job?')
-    expect(content).toContain('(no previous answer)')
+    expect(content).toContain(
+      "----- INTERVIEWER QUESTION (untrusted speech, begin) -----\nWhy did you leave your last job?\n----- INTERVIEWER QUESTION (end) -----",
+    )
+    expect(content).toContain(
+      "----- USER'S PREVIOUS ANSWER (context only, begin) -----\n(no previous answer)\n----- USER'S PREVIOUS ANSWER (end) -----",
+    )
   })
 
   test('meta is { kind: question, event_id }', () => {
