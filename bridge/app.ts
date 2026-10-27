@@ -36,6 +36,7 @@ export function createApp(deps: {
   let lastEmittedId: string | null = null
   let pendingAck = false
   let lastSent: { startedAt: number; at: number } | null = null
+  let firing = false // a fire() is awaiting emit; a concurrent one counts as a duplicate
 
   // Emit first, record state only on success, so a failed emit can be retried at once.
   async function send(event: ChannelEvent): Promise<void> {
@@ -45,6 +46,16 @@ export function createApp(deps: {
   }
 
   async function fire(): Promise<TriggerResult> {
+    if (firing) return { sent: false, reason: 'duplicate' }
+    firing = true
+    try {
+      return await doFire()
+    } finally {
+      firing = false
+    }
+  }
+
+  async function doFire(): Promise<TriggerResult> {
     const r = buffer.snapshot()
     if (!('snapshot' in r)) return { sent: false, reason: r.reason }
     const s: Snapshot = r.snapshot

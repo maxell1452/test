@@ -11,6 +11,7 @@ let t = 0
 let buf: TurnBuffer
 let emitted: ChannelEvent[]
 let emitFails: boolean
+let gate: Promise<void> | null // when set, emit waits on it
 let ids: number
 let app: ReturnType<typeof createApp>
 
@@ -41,11 +42,13 @@ beforeEach(() => {
   t = 10_000
   emitted = []
   emitFails = false
+  gate = null
   ids = 0
   buf = new TurnBuffer({ turnGapMs: GAP, now: () => t })
   app = createApp({
     buffer: buf,
     emit: async (e) => {
+      if (gate) await gate
       if (emitFails) throw new Error('boom')
       emitted.push(e)
     },
@@ -136,6 +139,54 @@ describe('trigger', () => {
     const retry = await send('/trigger')
     expect(retry.status).toBe(200)
     expect(emitted).toHaveLength(1)
+  })
+})
+
+describe('concurrency', () => {
+  const deferred = () => {
+    let release!: () => void
+    gate = new Promise<void>((r) => (release = r))
+    return release
+  }
+
+  test('two concurrent triggers emit once: one 200, one 409 duplicate', async () => {
+    await askQuestion()
+    const release = deferred()
+    const a = send('/trigger')
+    const b = send('/trigger')
+    release()
+    const res = await Promise.all([a, b])
+    expect(res.map((r) => r.status).sort()).toEqual([200, 409])
+    const loser = res.find((r) => r.status === 409)!
+    expect(await loser.json()).toEqual({ sent: false, reason: 'duplicate' })
+    expect(emitted).toHaveLength(1)
+  })
+
+  test('a trigger concurrent with auto-fire tick emits exactly once', async () => {
+    await send('/auto', { on: true })
+    await askQuestion()
+    const release = deferred()
+    const trig = send('/trigger')
+    const tick = app.tick()
+    release()
+    const [res] = await Promise.all([trig, tick])
+    expect(res.status).toBe(200)
+    expect(emitted).toHaveLength(1)
+  })
+
+  test('the lock is released after the gated emit: a new question is not blocked', async () => {
+    await askQuestion('First?')
+    const release = deferred()
+    const a = send('/trigger')
+    release()
+    expect((await a).status).toBe(200)
+    gate = null
+    await caption('r', 'user', 'my answer')
+    t += GAP
+    await askQuestion('Second?')
+    const res = await send('/trigger')
+    expect(res.status).toBe(200)
+    expect(emitted).toHaveLength(2)
   })
 })
 
