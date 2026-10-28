@@ -11,24 +11,27 @@ const TEXT = '[data-tid="closed-caption-text"]'
 const AVATAR = 'span[role="img"][id^="avatar-"]'
 const STAMP = 'data-caption-id'
 
-// Tried one at a time: a comma-joined list would return whichever match comes first in DOM order, and in the
-// 2026 redesign that is the toolbar's Captions control, not the caption panel.
+// Probed in priority order, one query each. A single combined selector matches in document order,
+// and the call bar's Captions on/off control also has a closed-caption data-tid and can come earlier in the page.
 const ROOTS = [
   '[data-tid="closed-caption-renderer-wrapper"]',
   '[data-tid="closed-caption-v2-window-wrapper"]',
   '[data-tid="closed-captions-renderer"]',
 ]
-const LOOSE_ROOT = '[data-tid*="closed-caption"]'
+const ANY_CAPTION_TID = '[data-tid*="closed-caption"]'
 
 export function findTeamsCaptionRoot(doc: Document): Element | null {
   for (const selector of ROOTS) {
     const el = doc.querySelector(selector)
     if (el) return el
   }
-  // Unknown layout: the outermost loose match that wraps real caption text.
+  // None of the known wrappers: climb from the first caption text via closest() and settle on the topmost
+  // element whose data-tid mentions captions (stays null if the page shows no caption text at all).
   let root: Element | null = null
-  for (let el = doc.querySelector(TEXT)?.parentElement; el; el = el.parentElement) {
-    if (el.matches(LOOSE_ROOT)) root = el
+  let hop = doc.querySelector(TEXT)?.parentElement?.closest(ANY_CAPTION_TID)
+  while (hop) {
+    root = hop
+    hop = hop.parentElement?.closest(ANY_CAPTION_TID)
   }
   return root
 }
@@ -37,10 +40,10 @@ export const extractTeams: Extract = (root, selfNames, ts) => {
   const updates: CaptionUpdate[] = []
   for (const block of Array.from(root.querySelectorAll(BLOCK))) {
     const text = block.querySelector(TEXT)?.textContent?.trim()
-    if (!text) continue
+    const speakerName = block.querySelector(AUTHOR)?.textContent?.trim()
+    if (!text || !speakerName) continue // incomplete block; also keeps it from being stamped
     // No avatar: stamp the node once so later scans of it keep the same id.
-    const blockId = block.querySelector(AVATAR)?.id || (block.getAttribute(STAMP) ?? stamp(block))
-    const speakerName = block.querySelector(AUTHOR)?.textContent?.trim() ?? ''
+    const blockId = block.querySelector(AVATAR)?.id || block.getAttribute(STAMP) || stamp(block)
     updates.push({ blockId, speaker: selfNames.includes(speakerName) ? 'user' : 'interviewer', speakerName, text, ts })
   }
   return updates

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
 import { observe, type Extract } from './observe'
 import type { CaptionUpdate } from '../../../shared/types'
@@ -12,6 +12,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // MutationObserver callbacks are delivered asynchronously.
 const flush = () => sleep(0)
 
+// Every observe() started by a test is stopped afterwards, even when an assertion threw, so no interval leaks into later tests.
+const stops: (() => void)[] = []
+afterEach(() => stops.splice(0).forEach((stop) => stop()))
+const start: typeof observe = (...args) => {
+  const stop = observe(...args)
+  stops.push(stop)
+  return stop
+}
+
 const setup = (html = '') => {
   const doc = new Window().document as unknown as Document
   doc.body.innerHTML = `<div id="root">${html}</div><div id="outside"></div>`
@@ -21,7 +30,7 @@ const setup = (html = '') => {
     return baseExtract(root, selfNames, ts)
   }
   const seen: CaptionUpdate[] = []
-  const stop = observe(doc, () => (state.finds++, state.root), extract, [], (u) => seen.push(u), { recheckMs: RECHECK_MS })
+  const stop = start(doc, () => (state.finds++, state.root), extract, [], (u) => seen.push(u), { recheckMs: RECHECK_MS })
   return { doc, state, seen, stop }
 }
 const html = '<p id="a">hello</p><p id="b">world</p>'
@@ -29,44 +38,40 @@ const ids = (seen: CaptionUpdate[]) => seen.map((u) => `${u.blockId}:${u.text}`)
 
 describe('observe', () => {
   test('initial scan emits captions already in the root, with no mutation', () => {
-    const { seen, stop } = setup(html)
+    const { seen } = setup(html)
     expect(ids(seen)).toEqual(['a:hello', 'b:world'])
-    stop()
   })
 
   test('a mutation outside the found root causes no extract call and no emission', async () => {
-    const { doc, state, seen, stop } = setup(html)
+    const { doc, state, seen } = setup(html)
     const before = state.extracts
     doc.getElementById('outside')!.innerHTML = '<p id="x">elsewhere</p>'
     await flush()
     expect(state.extracts).toBe(before)
     expect(seen).toHaveLength(2)
-    stop()
   })
 
   test('does not re-emit an unchanged block', async () => {
-    const { doc, state, seen, stop } = setup()
+    const { doc, state, seen } = setup()
     state.root!.innerHTML = html
     await flush()
     expect(ids(seen)).toEqual(['a:hello', 'b:world'])
     state.root!.innerHTML = html // same snapshot again: new nodes, same (blockId, text)
     await flush()
     expect(seen).toHaveLength(2)
-    stop()
   })
 
   test("re-emits when a block's text changes", async () => {
-    const { doc, state, seen, stop } = setup()
+    const { doc, state, seen } = setup()
     state.root!.innerHTML = html
     await flush()
     doc.getElementById('a')!.firstChild!.textContent = 'hello there' // in-place interim revision
     await flush()
     expect(ids(seen)).toEqual(['a:hello', 'b:world', 'a:hello there'])
-    stop()
   })
 
   test('replaced root: new and changed blocks are emitted, unchanged ones are not', async () => {
-    const { doc, state, seen, stop } = setup(html)
+    const { doc, state, seen } = setup(html)
     const next = doc.createElement('div')
     next.innerHTML = '<p id="a">hello</p><p id="b">world!</p><p id="c">new</p>'
     doc.body.replaceChild(next, state.root!)
@@ -77,7 +82,6 @@ describe('observe', () => {
     next.appendChild(Object.assign(doc.createElement('p'), { id: 'd', textContent: 'live' }))
     await flush()
     expect(ids(seen).at(-1)).toBe('d:live')
-    stop()
   })
 
   test('root that is null at first is picked up on a later re-check', async () => {
@@ -85,12 +89,11 @@ describe('observe', () => {
     doc.body.innerHTML = `<div id="root">${html}</div>`
     let root: Element | null = null
     const seen: CaptionUpdate[] = []
-    const stop = observe(doc, () => root, baseExtract, [], (u) => seen.push(u), { recheckMs: RECHECK_MS })
+    start(doc, () => root, baseExtract, [], (u) => seen.push(u), { recheckMs: RECHECK_MS })
     expect(seen).toHaveLength(0)
     root = doc.getElementById('root')
     await sleep(RECHECK_MS * 3)
     expect(ids(seen)).toEqual(['a:hello', 'b:world'])
-    stop()
   })
 
   test('stop: no emission afterwards and the interval no longer calls findRoot', async () => {

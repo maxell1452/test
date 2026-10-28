@@ -63,6 +63,13 @@ describe('extractTeams', () => {
     expect(doc.body.querySelector('.fui-ChatMessageCompact')!.getAttribute('data-caption-id')).toBe(first.blockId)
   })
 
+  test('skips a block with text but no author, before stamping it', () => {
+    doc.body.innerHTML = `<div class="fui-ChatMessageCompact"><span data-tid="closed-caption-text">anonymous</span></div>
+      <div class="fui-ChatMessageCompact"><span data-tid="author">  </span><span data-tid="closed-caption-text">blank author</span></div>`
+    expect(extractTeams(doc.body, [], 1)).toEqual([])
+    expect(doc.body.querySelector('[data-caption-id]')).toBeNull()
+  })
+
   test('only reads blocks inside the given root', () => {
     const block = (id: string, text: string) =>
       `<div class="fui-ChatMessageCompact"><span role="img" id="avatar-${id}"></span><span data-tid="author">A</span><span data-tid="closed-caption-text">${text}</span></div>`
@@ -83,6 +90,11 @@ describe('findTeamsCaptionRoot', () => {
   test('falls back to the outermost caption ancestor of the caption text', () => {
     doc.body.innerHTML = fixture.snapshots[0].html
     expect(findTeamsCaptionRoot(doc)?.getAttribute('data-tid')).toBe('closed-caption-v2-virtual-list-content')
+  })
+
+  test('fallback keeps the outermost caption ancestor, not the innermost', () => {
+    doc.body.innerHTML = `<div data-tid="closed-caption-outer" id="outer"><div data-tid="closed-caption-inner" id="inner"><span data-tid="closed-caption-text">hi</span></div></div>`
+    expect(findTeamsCaptionRoot(doc)?.id).toBe('outer')
   })
 
   test('is null when no caption text exists', () => {
