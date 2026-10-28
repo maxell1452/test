@@ -7,6 +7,8 @@ import { extractTeams } from '../extension/src/scrapers/teams'
 import type { CaptionUpdate, Status } from '../shared/types'
 
 const PORT = 18789 // the tests use 18787/18788
+const REQUEST_MS = 5000
+const WATCHDOG_MS = 60_000
 const BASE = `http://127.0.0.1:${PORT}`
 const ROOT = new URL('..', import.meta.url).pathname
 
@@ -34,6 +36,7 @@ function rawStatus(method: string, path: string, headers: Record<string, string>
       sock.write(`${method} ${path} HTTP/1.1\r\n${lines.join('\r\n')}\r\n\r\n${body}`)
     })
     let data = ''
+    sock.setTimeout(REQUEST_MS, () => sock.destroy(new Error(`${method} ${path}: no response in ${REQUEST_MS} ms`)))
     sock.on('data', (c) => (data += c))
     sock.on('error', reject)
     sock.on('close', () => resolve(Number(data.match(/^HTTP\/1\.1 (\d+)/)?.[1] ?? 0)))
@@ -41,8 +44,13 @@ function rawStatus(method: string, path: string, headers: Record<string, string>
 }
 
 const post = (path: string, body?: unknown) =>
-  fetch(`${BASE}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
-const getStatus = async () => (await fetch(`${BASE}/status`)).json() as Promise<Status>
+  fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_MS),
+  })
+const getStatus = async () => (await fetch(`${BASE}/status`, { signal: AbortSignal.timeout(REQUEST_MS) })).json() as Promise<Status>
 
 type Note = { method: string; params?: { content?: string; meta?: Record<string, string> } }
 const notes: Note[] = []
@@ -60,6 +68,13 @@ const ack = async (n: Note) => {
   seen.add(n)
   await client.callTool({ name: 'ack', arguments: { event_id: n.params!.meta!.event_id } })
 }
+
+// Whatever hangs (a squatter on the port, a stuck child), this ends the run: kill the child, exit non-zero.
+setTimeout(() => {
+  console.log(`FAIL  watchdog: not finished after ${WATCHDOG_MS} ms`)
+  if (transport.pid) process.kill(transport.pid, 'SIGKILL')
+  process.exit(1)
+}, WATCHDOG_MS).unref()
 
 try {
   await client.connect(transport)

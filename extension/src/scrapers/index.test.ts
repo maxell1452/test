@@ -7,6 +7,7 @@ const manifest: {
   content_scripts: { matches: string[]; js: string[] }[]
   host_permissions: string[]
   permissions: string[]
+  action?: unknown
   commands: Record<string, { suggested_key: { default: string } }>
 } = await Bun.file(new URL('../../manifest.json', import.meta.url)).json()
 const patterns = (hosts: readonly string[]) => hosts.map((h) => `https://${h}/*`)
@@ -44,9 +45,25 @@ describe('manifest', () => {
     expect(JSON.stringify(manifest)).not.toContain('meet.google.com')
   })
 
+  // Without the "action" key chrome.action is undefined and every badge update throws.
+  test('declares the action key', () => {
+    expect(manifest.action).toBeDefined()
+  })
+
   test('only the storage permission, both commands declared', () => {
     expect(manifest.permissions).toEqual(['storage'])
     expect(Object.keys(manifest.commands).sort()).toEqual(['toggle-auto', 'trigger'])
+  })
+
+  // The CLI build is what a user runs; the in-memory build below is what the test checks. They must not drift.
+  test('the package.json build script emits exactly the files the manifest names', async () => {
+    const pkg: { scripts: { build: string } } = await Bun.file(new URL('../../../package.json', import.meta.url)).json()
+    const cmd = pkg.scripts.build
+    const outdir = cmd.match(/--outdir (\S+)/)![1]
+    const entries = [...cmd.matchAll(/extension\/src\/(\w+)\.ts/g)].map((m) => m[1])
+    expect(cmd).toContain('--target browser')
+    const emitted = entries.map((e) => `${outdir.replace(/^extension\//, '')}/${e}.js`).sort()
+    expect(emitted).toEqual([...manifest.content_scripts[0].js, manifest.background.service_worker].sort())
   })
 
   // content_scripts.js entries are classic scripts: a top-level import/export is a SyntaxError in the page.

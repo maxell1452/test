@@ -4,7 +4,7 @@ import type { CaptionUpdate } from '../../shared/types'
 export type Badge = BridgeState | 'auto-on' | 'auto-off' | ''
 
 // All chrome access is injected so this is testable without a browser. The service worker is killed when idle:
-// nothing here may be remembered in memory except what can be re-derived (autoFire from the bridge).
+// nothing here is remembered in memory: the tab set lives in storage and autoFire is read from the bridge each time.
 export function createController(deps: {
   client: ReturnType<typeof createBridgeClient>
   setBadge: (state: Badge) => void | Promise<void>
@@ -14,7 +14,6 @@ export function createController(deps: {
 }) {
   const { client, setBadge, storage, schedule } = deps
   const ackTimeoutMs = deps.ackTimeoutMs ?? 10_000
-  let auto: boolean | null = null // null until first toggle: seeded from the bridge, which outlives this worker
   let tabsQueue: Promise<unknown> = Promise.resolve()
 
   // Read-modify-write on the tab set must not interleave, or two new tabs can overwrite each other.
@@ -24,33 +23,47 @@ export function createController(deps: {
     return run
   }
 
+  // The badge is feedback only: a failing chrome.action must never block the work around it.
+  const badge = async (state: Badge): Promise<void> => {
+    try {
+      await setBadge(state)
+    } catch (err) {
+      console.error('setBadge failed', err)
+    }
+  }
+
   return {
     async onCaption(tabId: number, update: CaptionUpdate): Promise<void> {
-      await withTabs(async () => {
-        const tabs = await storage.getTabs()
-        if (!tabs.includes(tabId)) await storage.setTabs([...tabs, tabId])
-      })
-      await client.postCaption(update)
+      await client.postCaption(update) // first: bookkeeping trouble must not cost a caption
+      try {
+        await withTabs(async () => {
+          const tabs = await storage.getTabs()
+          if (!tabs.includes(tabId)) await storage.setTabs([...tabs, tabId])
+        })
+      } catch (err) {
+        console.error('remembering caption tab failed', err)
+      }
     },
 
     async onTrigger(): Promise<void> {
       const state = await client.trigger()
-      await setBadge(state)
+      await badge(state)
       if (state !== 'sent') return
+      // A plain timer: it relies on the worker staying alive for ackTimeoutMs (inside Chrome's 30 s idle window)
+      // and is lost if the worker is terminated first.
       schedule(async () => {
-        if ((await client.status())?.pendingAck === true) await setBadge('no-ack')
+        if ((await client.status())?.pendingAck === true) await badge('no-ack')
       }, ackTimeoutMs)
     },
 
+    // Flip from what the bridge says now and show what it says afterwards: client.setAuto is fire-and-forget,
+    // and the bridge can have restarted since the last toggle.
     async onToggleAuto(): Promise<void> {
-      if (auto === null) {
-        const s = await client.status()
-        if (!s) return setBadge('down') // can't know the real state, so don't pretend to flip it
-        auto = s.autoFire
-      }
-      auto = !auto
-      await client.setAuto(auto)
-      await setBadge(auto ? 'auto-on' : 'auto-off')
+      const before = await client.status()
+      if (!before) return badge('down')
+      await client.setAuto(!before.autoFire)
+      const after = await client.status()
+      return badge(after ? (after.autoFire ? 'auto-on' : 'auto-off') : 'down')
     },
 
     // Only a tab that sent captions resets the buffer; closing an unrelated tab must not wipe a live interview.

@@ -10,6 +10,7 @@
     "https://teams.live.com/*",
     "http://127.0.0.1:8787/*"
   ],
+  "action": { "default_title": "Interview Copilot" },
   "background": { "service_worker": "dist/background.js" },
   "content_scripts": [
     {

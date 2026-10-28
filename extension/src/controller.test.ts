@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { createController } from './controller'
 import type { BridgeState } from './bridgeClient'
 import type { CaptionUpdate, Status } from '../../shared/types'
@@ -12,26 +12,49 @@ const status = (over: Partial<Status> = {}): Status => ({
   ...over,
 })
 
-function setup(opts: { trigger?: BridgeState; status?: Status | null; tabs?: number[] } = {}) {
+function setup(
+  opts: {
+    trigger?: BridgeState
+    status?: Status | null
+    tabs?: number[]
+    ignoreSetAuto?: boolean // the bridge never applies the post
+    dieOnSetAuto?: boolean // the bridge goes away right after the post
+    badgeThrows?: boolean // chrome.action missing or failing
+    setTabsFails?: number // first n setTabs calls reject
+    getTabsDelayMs?: number
+  } = {},
+) {
   const calls: string[] = []
   const badges: unknown[] = []
   const scheduled: { fn: () => void; ms: number }[] = []
   let tabs = opts.tabs ?? []
   let writes = 0
+  let failures = opts.setTabsFails ?? 0
   let current = opts.status === undefined ? status() : opts.status
   const client = {
     postCaption: async (u: CaptionUpdate) => void calls.push(`caption:${u.blockId}`),
     trigger: async () => opts.trigger ?? 'sent',
-    setAuto: async (on: boolean) => void calls.push(`auto:${on}`),
+    setAuto: async (on: boolean) => {
+      calls.push(`auto:${on}`)
+      if (opts.dieOnSetAuto) current = null
+      else if (current && !opts.ignoreSetAuto) current = { ...current, autoFire: on }
+    },
     reset: async () => void calls.push('reset'),
     status: async () => current,
   }
   const deps = {
     client,
-    setBadge: (s: unknown) => void badges.push(s),
+    setBadge: (s: unknown) => {
+      badges.push(s)
+      if (opts.badgeThrows) throw new TypeError("Cannot read properties of undefined (reading 'setBadgeText')")
+    },
     storage: {
-      getTabs: async () => [...tabs],
+      getTabs: async () => {
+        if (opts.getTabsDelayMs) await Bun.sleep(opts.getTabsDelayMs)
+        return [...tabs]
+      },
       setTabs: async (t: number[]) => {
+        if (failures-- > 0) throw new Error('storage quota')
         writes++
         tabs = [...t]
       },
@@ -44,6 +67,7 @@ function setup(opts: { trigger?: BridgeState; status?: Status | null; tabs?: num
     badges,
     scheduled,
     writes: () => writes,
+    tabs: () => tabs,
     setStatus: (s: Status | null) => (current = s),
     controller: createController(deps),
   }
@@ -106,12 +130,60 @@ describe('onToggleAuto', () => {
   })
 })
 
-describe('onToggleAuto, bridge down', () => {
-  test("shows 'down' and changes nothing when the first status read fails", async () => {
+describe('onToggleAuto, bridge truth', () => {
+  test("shows 'down' and changes nothing when the status read fails", async () => {
     const t = setup({ status: null })
     await t.controller.onToggleAuto()
     expect(t.calls).toEqual([])
     expect(t.badges).toEqual(['down'])
+  })
+
+  test("bridge down on the second toggle shows 'down', not AUTO", async () => {
+    const t = setup()
+    await t.controller.onToggleAuto()
+    t.setStatus(null)
+    await t.controller.onToggleAuto()
+    expect(t.calls).toEqual(['auto:true'])
+    expect(t.badges).toEqual(['auto-on', 'down'])
+  })
+
+  test("bridge gone right after the post shows 'down'", async () => {
+    const t = setup({ dieOnSetAuto: true })
+    await t.controller.onToggleAuto()
+    expect(t.badges).toEqual(['down'])
+  })
+
+  test('after a bridge restart the next toggle reads the fresh state, not a stale cache', async () => {
+    const t = setup()
+    await t.controller.onToggleAuto() // now on
+    t.setStatus(status({ autoFire: false })) // bridge restarted, back to off
+    await t.controller.onToggleAuto()
+    expect(t.calls).toEqual(['auto:true', 'auto:true'])
+    expect(t.badges).toEqual(['auto-on', 'auto-on'])
+  })
+
+  test('a post the bridge ignores shows the state that is really true', async () => {
+    const t = setup({ ignoreSetAuto: true })
+    await t.controller.onToggleAuto()
+    expect(t.calls).toEqual(['auto:true'])
+    expect(t.badges).toEqual(['auto-off'])
+  })
+})
+
+describe('a failing setBadge', () => {
+  test('onTrigger still schedules the ack check and resolves', async () => {
+    const t = setup({ badgeThrows: true })
+    await t.controller.onTrigger()
+    expect(t.scheduled.map((s) => s.ms)).toEqual([10_000])
+    t.setStatus(status({ pendingAck: true }))
+    await t.scheduled[0].fn() // the check itself must not reject either
+    expect(t.badges).toEqual(['sent', 'no-ack'])
+  })
+
+  test('onToggleAuto still applies the change and resolves', async () => {
+    const t = setup({ badgeThrows: true })
+    await t.controller.onToggleAuto()
+    expect(t.calls).toEqual(['auto:true'])
   })
 })
 
@@ -123,6 +195,27 @@ describe('tabs', () => {
     await t.controller.onCaption(8, update('c'))
     expect(t.calls).toEqual(['caption:a', 'caption:b', 'caption:c'])
     expect(t.writes()).toBe(2)
+  })
+
+  test('a failing storage write still posts the caption, does not reject, and does not wedge the queue', async () => {
+    const err = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const t = setup({ setTabsFails: 1 })
+      await t.controller.onCaption(7, update('a'))
+      expect(t.calls).toEqual(['caption:a'])
+      expect(err).toHaveBeenCalled()
+      await t.controller.onCaption(8, update('b'))
+      expect(t.calls).toEqual(['caption:a', 'caption:b'])
+      expect(t.tabs()).toEqual([8])
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  test('concurrent captions from two new tabs both end up persisted', async () => {
+    const t = setup({ getTabsDelayMs: 10 })
+    await Promise.all([t.controller.onCaption(7, update('a')), t.controller.onCaption(8, update('b'))])
+    expect(t.tabs().sort()).toEqual([7, 8])
   })
 
   test('removal resets only for a tab that sent captions, and only once', async () => {

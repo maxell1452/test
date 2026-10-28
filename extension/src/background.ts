@@ -37,13 +37,13 @@ const controller = createController({
 // Listeners are registered synchronously at top level, or events that wake a stopped worker are missed.
 chrome.runtime.onMessage.addListener((msg: { type?: string; update?: CaptionUpdate }, sender) => {
   if (msg?.type !== 'caption' || !msg.update || sender.tab?.id === undefined) return false
-  void controller.onCaption(sender.tab.id, msg.update)
+  controller.onCaption(sender.tab.id, msg.update).catch(console.error)
   return false // no reply: returning true would leave the channel open and error when the worker sleeps
 })
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'trigger') void controller.onTrigger()
-  else if (command === 'toggle-auto') void controller.onToggleAuto()
+  if (command === 'trigger') controller.onTrigger().catch(console.error)
+  else if (command === 'toggle-auto') controller.onToggleAuto().catch(console.error)
 })
 
-chrome.tabs.onRemoved.addListener((tabId) => void controller.onTabRemoved(tabId))
+chrome.tabs.onRemoved.addListener((tabId) => controller.onTabRemoved(tabId).catch(console.error))
