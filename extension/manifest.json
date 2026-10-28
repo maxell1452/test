@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Interview Copilot",
+  "version": "0.0.1",
+  "description": "Sends the interviewer's latest question from Teams live captions to a local bridge feeding Claude Code.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://teams.microsoft.com/*",
+    "https://teams.cloud.microsoft/*",
+    "https://teams.live.com/*",
+    "http://127.0.0.1:8787/*"
+  ],
+  "background": { "service_worker": "dist/background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://teams.microsoft.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://teams.live.com/*"
+      ],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "trigger": {
+      "suggested_key": { "default": "Alt+Shift+K" },
+      "description": "Send the interviewer's latest question to Claude"
+    },
+    "toggle-auto": {
+      "suggested_key": { "default": "Alt+Shift+J" },
+      "description": "Toggle auto-fire"
+    }
+  }
+}

@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build extension/src/content.ts extension/src/background.ts --outdir extension/dist --target browser",
+    "smoke": "bun tools/smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2"
