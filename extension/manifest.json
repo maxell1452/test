@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "Interview Copilot",
   "version": "0.0.1",
-  "description": "Sends the interviewer's latest question from Teams live captions to a local bridge feeding Claude Code.",
+  "description": "Sends the interviewer's latest question from Teams or Google Meet live captions to a local bridge feeding Claude Code.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://teams.microsoft.com/*",
     "https://teams.cloud.microsoft/*",
     "https://teams.live.com/*",
+    "https://meet.google.com/*",
     "http://127.0.0.1:8787/*"
   ],
   "action": { "default_title": "Interview Copilot" },
@@ -17,7 +18,8 @@
       "matches": [
         "https://teams.microsoft.com/*",
         "https://teams.cloud.microsoft/*",
-        "https://teams.live.com/*"
+        "https://teams.live.com/*",
+        "https://meet.google.com/*"
       ],
       "js": ["dist/content.js"],
       "run_at": "document_idle"

@@ -80,11 +80,48 @@ function stamp(block) {
   return id;
 }
 
+// extension/src/scrapers/meet.ts
+var LABELS = ["Captions", "Phụ đề"];
+var ROOT = LABELS.map((l) => `[role="region"][aria-label="${l}"]`).join(",");
+var STAMP2 = "data-caption-id";
+function findMeetCaptionRoot(doc) {
+  return doc.querySelector(ROOT);
+}
+var extractMeet = (root, selfNames, ts) => {
+  const updates = [];
+  for (const block of Array.from(root.children)) {
+    const head = block.firstElementChild;
+    const body = block.lastElementChild;
+    const img = head?.querySelector("img");
+    if (!head || !body || head === body || !img)
+      continue;
+    const text = body.textContent?.trim();
+    const speakerName = head.querySelector("span")?.textContent?.trim();
+    if (!text || !speakerName)
+      continue;
+    const iml = img.getAttribute("data-iml");
+    const blockId = iml ? `meet-${iml}` : block.getAttribute(STAMP2) || stamp2(block);
+    updates.push({ blockId, speaker: selfNames.includes(speakerName) ? "user" : "interviewer", speakerName, text, ts });
+  }
+  return updates;
+};
+function stamp2(block) {
+  const id = `caption-${crypto.randomUUID()}`;
+  block.setAttribute(STAMP2, id);
+  return id;
+}
+
 // extension/src/scrapers/index.ts
 var TEAMS_HOSTS = ["teams.microsoft.com", "teams.cloud.microsoft", "teams.live.com"];
+var MEET_HOSTS = ["meet.google.com"];
 var TEAMS = { findRoot: findTeamsCaptionRoot, extract: extractTeams };
+var MEET = { findRoot: findMeetCaptionRoot, extract: extractMeet };
 function scraperFor(hostname) {
-  return TEAMS_HOSTS.includes(hostname) ? TEAMS : null;
+  if (TEAMS_HOSTS.includes(hostname))
+    return TEAMS;
+  if (MEET_HOSTS.includes(hostname))
+    return MEET;
+  return null;
 }
 
 // extension/src/content.ts
@@ -99,8 +136,18 @@ if (scraper) {
       } catch {}
     });
   };
-  const names = (v) => Array.isArray(v) && v.every((n) => typeof n === "string") && v.length ? v : ["You"];
-  chrome.storage.local.get("selfNames").then((r) => start(names(r.selfNames)), () => start(["You"]));
+  const DEFAULT_NAMES = [
+    "Vuong",
+    "Vuong Vu Hoang",
+    "Vuong Vu",
+    "Vương",
+    "Vương Vũ Hoàng",
+    "Vương Vũ",
+    "You",
+    "Bạn"
+  ];
+  const names = (v) => Array.isArray(v) && v.every((n) => typeof n === "string") && v.length ? v : DEFAULT_NAMES;
+  chrome.storage.local.get("selfNames").then((r) => start(names(r.selfNames)), () => start(DEFAULT_NAMES));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.selfNames)
       start(names(changes.selfNames.newValue));

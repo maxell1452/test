@@ -8,8 +8,9 @@
   let observer = null;
   let timer = null;
 
+  // Accepts a CSS selector or an Element (e.g. `$0`, the node selected in the Elements panel).
   window.startRecording = (selector) => {
-    const el = document.querySelector(selector);
+    const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
     if (!el) throw new Error('no element for selector: ' + selector);
     snapshots = [];
     observer?.disconnect();

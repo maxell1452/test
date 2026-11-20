@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { scraperFor, TEAMS_HOSTS } from './index'
+import { MEET_HOSTS, scraperFor, TEAMS_HOSTS } from './index'
+import { extractMeet, findMeetCaptionRoot } from './meet'
 import { extractTeams, findTeamsCaptionRoot } from './teams'
 
 const manifest: {
@@ -22,15 +23,26 @@ describe('scraperFor', () => {
     expect([...TEAMS_HOSTS]).toEqual(['teams.microsoft.com', 'teams.cloud.microsoft', 'teams.live.com'])
   })
 
+  test('returns the Meet scraper for meet.google.com', () => {
+    const s = scraperFor('meet.google.com')
+    expect(s?.findRoot).toBe(findMeetCaptionRoot)
+    expect(s?.extract).toBe(extractMeet)
+    expect([...MEET_HOSTS]).toEqual(['meet.google.com'])
+  })
+
   test('returns null for anything else, lookalikes included', () => {
     for (const host of [
-      'meet.google.com',
+      'google.com',
       'example.com',
       '',
       'teams.microsoft.com.evil.com',
       'evilteams.microsoft.com',
       'sub.teams.microsoft.com',
       'TEAMS.MICROSOFT.COM.',
+      'meet.google.com.evil.com',
+      'evilmeet.google.com',
+      'sub.meet.google.com',
+      'MEET.GOOGLE.COM.',
     ]) {
       expect(scraperFor(host)).toBeNull()
     }
@@ -38,11 +50,11 @@ describe('scraperFor', () => {
 })
 
 describe('manifest', () => {
-  test('content script matches and host permissions are exactly the Teams hosts', () => {
+  test('content script matches and host permissions are exactly the Teams and Meet hosts', () => {
+    const hosts = [...TEAMS_HOSTS, ...MEET_HOSTS]
     expect(manifest.content_scripts).toHaveLength(1)
-    expect(manifest.content_scripts[0].matches).toEqual(patterns(TEAMS_HOSTS))
-    expect(manifest.host_permissions).toEqual([...patterns(TEAMS_HOSTS), 'http://127.0.0.1:8787/*'])
-    expect(JSON.stringify(manifest)).not.toContain('meet.google.com')
+    expect(manifest.content_scripts[0].matches).toEqual(patterns(hosts))
+    expect(manifest.host_permissions).toEqual([...patterns(hosts), 'http://127.0.0.1:8787/*'])
   })
 
   // Without the "action" key chrome.action is undefined and every badge update throws.
