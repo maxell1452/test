@@ -1,0 +1,20 @@
+{
+  "name": "interview-prep",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build extension/src/content.ts extension/src/background.ts --outdir extension/dist --target browser",
+    "smoke": "bun tools/smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.6",
+    "bun-types": "^1.4.4",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.3"
+  }
+}

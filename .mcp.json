@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "interview-bridge": {
+      "command": "/home/maxell/.bun/bin/bun",
+      "args": ["bridge/server.ts"]
+    }
+  }
+}

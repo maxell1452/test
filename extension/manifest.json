@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Interview Copilot",
+  "version": "0.0.1",
+  "description": "Sends the interviewer's latest question from Teams or Google Meet live captions, or a screenshot of the current page, to a local bridge feeding Claude Code.",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "Interview Copilot" },
+  "background": { "service_worker": "dist/background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://teams.microsoft.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://teams.live.com/*",
+        "https://meet.google.com/*"
+      ],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "trigger": {
+      "suggested_key": { "default": "Alt+Shift+K" },
+      "description": "Send the interviewer's latest question to Claude"
+    },
+    "capture": {
+      "suggested_key": { "default": "Alt+Shift+L" },
+      "description": "Send this page to Claude"
+    },
+    "toggle-auto": {
+      "suggested_key": { "default": "Alt+Shift+J" },
+      "description": "Toggle auto-fire"
+    }
+  }
+}
